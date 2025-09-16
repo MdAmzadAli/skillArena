@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ThumbsUp, ThumbsDown, Zap, Share2 } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Share2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -154,19 +154,19 @@ export default function VideoCard({ video, currentUserId, onShare }: VideoCardPr
           <div className="flex items-center space-x-4">
             <VoteButton
               type="like"
-              icon={ThumbsUp}
+              icon={() => <span className="text-lg">👍</span>}
               count={video.likes}
               color="chart-1"
             />
             <VoteButton
               type="dislike"
-              icon={ThumbsDown}
+              icon={() => <span className="text-lg">👎</span>}
               count={video.dislikes}
               color="destructive"
             />
             <VoteButton
               type="wow"
-              icon={Zap}
+              icon={() => <span className="text-lg">🤯</span>}
               count={video.wows}
               color="chart-3"
             />
