@@ -98,11 +98,16 @@ export default function UploadForm() {
     if (!file) return;
 
     // Validate file type
-    const allowedTypes = ["video/mp4", "video/quicktime", "video/x-msvideo"];
+    const allowedTypes = [
+      "video/mp4", 
+      "video/quicktime", 
+      "video/x-msvideo",
+      "video/webm" // Also accept WebM files from cropping
+    ];
     if (!allowedTypes.includes(file.type)) {
       toast({
         title: "Invalid file type",
-        description: "Please select an MP4, MOV, or AVI file.",
+        description: "Please select an MP4, MOV, AVI, or WebM file.",
         variant: "destructive",
       });
       return;

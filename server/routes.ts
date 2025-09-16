@@ -26,11 +26,22 @@ const upload = multer({
     }
   }),
   fileFilter: (req, file, cb) => {
-    const allowedMimes = ['video/mp4', 'video/quicktime', 'video/x-msvideo'];
+    const allowedMimes = [
+      'video/mp4', 
+      'video/quicktime', 
+      'video/x-msvideo',
+      'video/webm', // Support WebM files from video cropping
+      'video/webm;codecs=vp9,opus', // Specific WebM codec
+      'video/webm;codecs=vp8,vorbis' // Alternative WebM codec
+    ];
+    
+    console.log(`File upload: ${file.originalname}, MIME: ${file.mimetype}`);
+    
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Only MP4, MOV, and AVI files are allowed'));
+      console.error(`Rejected file type: ${file.mimetype}`);
+      cb(new Error('Only MP4, MOV, AVI, and WebM files are allowed'));
     }
   },
   limits: {
