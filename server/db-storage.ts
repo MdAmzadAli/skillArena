@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { eq, desc, gte, sql } from "drizzle-orm";
+import { eq, desc, gte, sql, and } from "drizzle-orm";
 import { users, videos, votes, type User, type InsertUser, type Video, type InsertVideo, type Vote, type InsertVote } from "@shared/schema";
 import { IStorage } from "./storage";
 import session from "express-session";
@@ -72,6 +72,7 @@ export class DbStorage implements IStorage {
 
     return result.map(row => ({
       ...row,
+      username: row.username || 'Unknown',
       score: row.likes + row.wows - row.dislikes
     }));
   }
@@ -97,8 +98,7 @@ export class DbStorage implements IStorage {
     const result = await this.db
       .select()
       .from(votes)
-      .where(eq(votes.userId, userId))
-      .where(eq(votes.videoId, videoId));
+      .where(and(eq(votes.userId, userId), eq(votes.videoId, videoId)));
     return result[0];
   }
 
@@ -110,8 +110,7 @@ export class DbStorage implements IStorage {
   async deleteVote(userId: string, videoId: string): Promise<void> {
     await this.db
       .delete(votes)
-      .where(eq(votes.userId, userId))
-      .where(eq(votes.videoId, videoId));
+      .where(and(eq(votes.userId, userId), eq(votes.videoId, videoId)));
   }
 
   async getVideoVotes(videoId: string): Promise<{ likes: number; dislikes: number; wows: number }> {
@@ -163,6 +162,7 @@ export class DbStorage implements IStorage {
 
     return result.map((entry, index) => ({
       ...entry,
+      username: entry.username || 'Unknown',
       rank: index + 1
     }));
   }
