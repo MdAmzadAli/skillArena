@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,13 +7,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
-import { CloudUpload, Video, X } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
+import { CloudUpload, Video, X, Scissors, Play, Pause } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertVideoSchema } from "@shared/schema";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { trimVideo, formatTime, type TrimProgress } from "@/lib/ffmpeg";
 
 interface UploadFormData {
   skillCategory: string;
@@ -26,6 +28,11 @@ export default function UploadForm() {
   const [previewUrl, setPreviewUrl] = useState<string>("");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
+  const [showCropping, setShowCropping] = useState(false);
+  const [cropStartTime, setCropStartTime] = useState(0);
+  const [isCropping, setIsCropping] = useState(false);
+  const [cropProgress, setCropProgress] = useState<TrimProgress | null>(null);
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
@@ -121,12 +128,11 @@ export default function UploadForm() {
       setVideoDuration(duration);
       
       if (duration > 5000) {
-        toast({
-          title: "Video too long",
-          description: "Videos must be 5 seconds or less.",
-          variant: "destructive",
-        });
-        handleReset();
+        // Show cropping interface instead of rejecting
+        setShowCropping(true);
+        setCropStartTime(0);
+      } else {
+        setShowCropping(false);
       }
     }
   };
@@ -136,6 +142,11 @@ export default function UploadForm() {
     setPreviewUrl("");
     setVideoDuration(0);
     setUploadProgress(0);
+    setShowCropping(false);
+    setCropStartTime(0);
+    setIsCropping(false);
+    setCropProgress(null);
+    setIsPreviewPlaying(false);
     form.reset();
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -143,7 +154,7 @@ export default function UploadForm() {
   };
 
   const handleSubmit = (data: UploadFormData) => {
-    if (!selectedFile || !data.acceptTerms) return;
+    if (!selectedFile || !data.acceptTerms || showCropping) return;
 
     const formData = new FormData();
     formData.append("video", selectedFile);
@@ -154,7 +165,84 @@ export default function UploadForm() {
     uploadMutation.mutate(formData);
   };
 
-  const canSubmit = selectedFile && videoDuration > 0 && videoDuration <= 5000 && form.watch("acceptTerms") && form.watch("skillCategory");
+  const handlePreviewSegment = useCallback(() => {
+    if (!videoRef.current) return;
+    
+    const video = videoRef.current;
+    video.currentTime = cropStartTime;
+    
+    if (isPreviewPlaying) {
+      video.pause();
+      setIsPreviewPlaying(false);
+    } else {
+      setIsPreviewPlaying(true);
+      video.play();
+      
+      // Auto-pause after 5 seconds
+      const timeout = setTimeout(() => {
+        video.pause();
+        setIsPreviewPlaying(false);
+      }, 5000);
+      
+      video.onpause = () => {
+        clearTimeout(timeout);
+        setIsPreviewPlaying(false);
+      };
+    }
+  }, [cropStartTime, isPreviewPlaying]);
+
+  const handleCropVideo = async () => {
+    if (!selectedFile) return;
+    
+    setIsCropping(true);
+    setCropProgress({ progress: 0, message: 'Starting...' });
+    
+    try {
+      const croppedBlob = await trimVideo(
+        selectedFile,
+        cropStartTime,
+        5,
+        (progress) => setCropProgress(progress)
+      );
+      
+      // Create new file from cropped blob
+      const croppedFile = new File([croppedBlob], selectedFile.name, {
+        type: 'video/mp4'
+      });
+      
+      // Update state with cropped video
+      setSelectedFile(croppedFile);
+      URL.revokeObjectURL(previewUrl);
+      const newPreviewUrl = URL.createObjectURL(croppedBlob);
+      setPreviewUrl(newPreviewUrl);
+      setVideoDuration(5000); // 5 seconds
+      setShowCropping(false);
+      setCropStartTime(0);
+      
+      toast({
+        title: "Video cropped successfully!",
+        description: "Your video has been trimmed to 5 seconds.",
+      });
+      
+    } catch (error) {
+      toast({
+        title: "Cropping failed",
+        description: error instanceof Error ? error.message : "Could not crop video",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCropping(false);
+      setCropProgress(null);
+    }
+  };
+
+  const handleCancelCrop = () => {
+    setShowCropping(false);
+    setCropStartTime(0);
+    handleReset();
+  };
+
+  const canSubmit = selectedFile && videoDuration > 0 && videoDuration <= 5000 && form.watch("acceptTerms") && form.watch("skillCategory") && !showCropping;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
@@ -205,7 +293,7 @@ export default function UploadForm() {
                 <video
                   ref={videoRef}
                   className="w-full aspect-video object-cover"
-                  controls
+                  controls={!showCropping}
                   onLoadedMetadata={handleVideoLoaded}
                   data-testid="video-preview"
                 >
@@ -225,6 +313,97 @@ export default function UploadForm() {
                 <span>Duration: <span className="font-mono">{(videoDuration / 1000).toFixed(1)}s</span></span>
                 <span>Size: <span className="font-mono">{(selectedFile!.size / (1024 * 1024)).toFixed(1)}MB</span></span>
               </div>
+
+              {/* Video Cropping Interface */}
+              {showCropping && (
+                <Card className="border-orange-200 bg-orange-50/50">
+                  <CardContent className="pt-4">
+                    <div className="flex items-center space-x-2 mb-4">
+                      <Scissors className="w-5 h-5 text-orange-600" />
+                      <h3 className="font-medium text-card-foreground">Crop to 5 seconds</h3>
+                    </div>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Your video is longer than 5 seconds. Select which part to keep:
+                    </p>
+
+                    {/* Timeline Slider */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-mono">{formatTime(cropStartTime)}</span>
+                        <span className="text-muted-foreground">→</span>
+                        <span className="font-mono">{formatTime(cropStartTime + 5)}</span>
+                      </div>
+                      
+                      <Slider
+                        value={[cropStartTime]}
+                        onValueChange={(value) => setCropStartTime(value[0])}
+                        min={0}
+                        max={(videoDuration / 1000) - 5}
+                        step={0.1}
+                        className="w-full"
+                        data-testid="slider-crop-time"
+                        disabled={isCropping}
+                      />
+                      
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handlePreviewSegment}
+                          disabled={isCropping}
+                          data-testid="button-preview-segment"
+                        >
+                          {isPreviewPlaying ? (
+                            <>
+                              <Pause className="w-4 h-4 mr-2" />
+                              Pause Preview
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-4 h-4 mr-2" />
+                              Preview Segment
+                            </>
+                          )}
+                        </Button>
+                        <div className="text-xs text-muted-foreground">
+                          Preview the selected 5-second segment
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Cropping Progress */}
+                    {isCropping && cropProgress && (
+                      <div className="mt-4 space-y-2">
+                        <Progress value={cropProgress.progress} className="h-2" />
+                        <p className="text-sm text-muted-foreground text-center">
+                          {cropProgress.message}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Action Buttons */}
+                    <div className="flex space-x-3 mt-6">
+                      <Button
+                        onClick={handleCropVideo}
+                        disabled={isCropping}
+                        className="flex-1"
+                        data-testid="button-crop-continue"
+                      >
+                        <Scissors className="w-4 h-4 mr-2" />
+                        {isCropping ? 'Cropping...' : 'Crop & Continue'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={handleCancelCrop}
+                        disabled={isCropping}
+                        data-testid="button-cancel-crop"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           )}
 
