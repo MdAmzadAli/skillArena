@@ -33,6 +33,7 @@ export default function UploadForm() {
   const [isCropping, setIsCropping] = useState(false);
   const [cropProgress, setCropProgress] = useState<TrimProgress | null>(null);
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const [isVideoCropped, setIsVideoCropped] = useState(false); // Track if video has been cropped
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
@@ -125,13 +126,24 @@ export default function UploadForm() {
   const handleVideoLoaded = () => {
     if (videoRef.current) {
       const duration = videoRef.current.duration * 1000; // Convert to milliseconds
+      
+      // If this is a cropped video, force duration to 5000ms and don't show cropping
+      if (isVideoCropped) {
+        console.log('Video loaded after cropping, setting duration to 5000ms');
+        setVideoDuration(5000);
+        setShowCropping(false);
+        return;
+      }
+      
+      // For original videos, check if cropping is needed
       setVideoDuration(duration);
       
       if (duration > 5000) {
-        // Show cropping interface instead of rejecting
+        console.log(`Original video duration: ${duration}ms, showing cropping interface`);
         setShowCropping(true);
         setCropStartTime(0);
       } else {
+        console.log(`Original video duration: ${duration}ms, no cropping needed`);
         setShowCropping(false);
       }
     }
@@ -147,6 +159,7 @@ export default function UploadForm() {
     setIsCropping(false);
     setCropProgress(null);
     setIsPreviewPlaying(false);
+    setIsVideoCropped(false); // Reset cropped state
     form.reset();
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -169,7 +182,17 @@ export default function UploadForm() {
     if (!videoRef.current) return;
     
     const video = videoRef.current;
-    video.currentTime = cropStartTime;
+    
+    // Validate cropStartTime to prevent non-finite value errors
+    const validCropStartTime = isFinite(cropStartTime) ? cropStartTime : 0;
+    
+    // Ensure video is loaded and has valid duration
+    if (!video.duration || !isFinite(video.duration)) {
+      console.warn('Video duration is not valid for preview');
+      return;
+    }
+    
+    video.currentTime = Math.max(0, Math.min(validCropStartTime, video.duration - 5));
     
     if (isPreviewPlaying) {
       video.pause();
@@ -251,15 +274,29 @@ export default function UploadForm() {
       setSelectedFile(croppedFile);
       const newPreviewUrl = URL.createObjectURL(croppedFile);
       setPreviewUrl(newPreviewUrl);
-      setVideoDuration(5000); // 5 seconds
-      setShowCropping(false);
+      setVideoDuration(5000); // Force 5 seconds
+      setIsVideoCropped(true); // Mark as cropped
+      setShowCropping(false); // Close cropping interface
       setCropStartTime(0);
       setIsPreviewPlaying(false);
+      
+      console.log('Video cropping completed, updating state:', {
+        fileName: croppedFile.name,
+        duration: 5000,
+        cropped: true,
+        showCropping: false
+      });
       
       // Reset video element to load the new cropped video
       if (videoRef.current) {
         videoRef.current.load();
       }
+      
+      // Force form validation to trigger after cropping
+      setTimeout(() => {
+        console.log('Triggering form validation after cropping');
+        form.trigger(); // Trigger form validation
+      }, 200);
       
       toast({
         title: "Video cropped successfully!",
@@ -287,7 +324,27 @@ export default function UploadForm() {
     handleReset();
   };
 
-  const canSubmit = selectedFile && videoDuration > 0 && videoDuration <= 5000 && form.watch("acceptTerms") && form.watch("skillCategory") && !showCropping;
+  // Enhanced submit validation with debugging
+  const formValues = form.watch();
+  const canSubmit = !!(selectedFile && 
+    videoDuration > 0 && 
+    videoDuration <= 5000 && 
+    formValues.acceptTerms && 
+    formValues.skillCategory && 
+    formValues.skillCategory.trim() !== "" && 
+    !showCropping && 
+    !uploadMutation.isPending);
+    
+  // Debug logging for submit state
+  console.log('Submit validation:', {
+    hasFile: !!selectedFile,
+    validDuration: videoDuration > 0 && videoDuration <= 5000,
+    acceptedTerms: !!formValues.acceptTerms,
+    hasCategory: !!(formValues.skillCategory && formValues.skillCategory.trim()),
+    notCropping: !showCropping,
+    notUploading: !uploadMutation.isPending,
+    canSubmit
+  });
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
