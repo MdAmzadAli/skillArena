@@ -60,13 +60,14 @@ export async function trimVideo(
     
     // Trim video with stream copy first, fallback to re-encode
     try {
-      // Try stream copy for fast processing
+      // Try stream copy for fast processing (place -ss before -i for accuracy)
       await ffmpegInstance.exec([
-        '-i', inputFileName,
         '-ss', startSeconds.toString(),
+        '-i', inputFileName,
         '-t', durationSeconds.toString(),
         '-c', 'copy',
         '-avoid_negative_ts', 'make_zero',
+        '-y',
         outputFileName
       ]);
     } catch (streamCopyError) {
@@ -74,13 +75,14 @@ export async function trimVideo(
       
       // Fallback to re-encoding for accuracy
       await ffmpegInstance.exec([
-        '-i', inputFileName,
         '-ss', startSeconds.toString(),
+        '-i', inputFileName,
         '-t', durationSeconds.toString(),
         '-c:v', 'libx264',
         '-c:a', 'aac',
         '-preset', 'ultrafast',
         '-crf', '28',
+        '-y',
         outputFileName
       ]);
     }
@@ -131,9 +133,24 @@ async function fallbackTrim(
       canvas.height = video.videoHeight;
       
       const stream = canvas.captureStream(30); // 30 FPS
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=vp9'
-      });
+      
+      // Select a supported MIME type
+      let mimeType = 'video/webm;codecs=vp9';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'video/webm;codecs=vp8';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = 'video/webm';
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = 'video/mp4';
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+              reject(new Error('No supported video format for recording'));
+              return;
+            }
+          }
+        }
+      }
+      
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
       
       const chunks: BlobPart[] = [];
       
@@ -145,8 +162,9 @@ async function fallbackTrim(
       
       mediaRecorder.onstop = () => {
         onProgress?.({ progress: 90, message: 'Processing...' });
-        const blob = new Blob(chunks, { type: 'video/webm' });
+        const blob = new Blob(chunks, { type: mimeType });
         onProgress?.({ progress: 100, message: 'Complete!' });
+        URL.revokeObjectURL(video.src);
         resolve(blob);
       };
       

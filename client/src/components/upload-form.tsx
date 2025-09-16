@@ -205,9 +205,27 @@ export default function UploadForm() {
         (progress) => setCropProgress(progress)
       );
       
-      // Create new file from cropped blob
-      const croppedFile = new File([croppedBlob], selectedFile.name, {
-        type: 'video/mp4'
+      // Create new file from cropped blob with correct type and extension
+      const originalName = selectedFile.name;
+      const nameWithoutExt = originalName.substring(0, originalName.lastIndexOf('.'));
+      
+      let newFileName: string;
+      let fileType: string;
+      
+      if (croppedBlob.type.startsWith('video/mp4')) {
+        newFileName = `${nameWithoutExt}_cropped.mp4`;
+        fileType = 'video/mp4';
+      } else if (croppedBlob.type.startsWith('video/webm')) {
+        newFileName = `${nameWithoutExt}_cropped.webm`;
+        fileType = 'video/webm';
+      } else {
+        // Default to mp4 for unknown types
+        newFileName = `${nameWithoutExt}_cropped.mp4`;
+        fileType = 'video/mp4';
+      }
+      
+      const croppedFile = new File([croppedBlob], newFileName, {
+        type: fileType
       });
       
       // Update state with cropped video
