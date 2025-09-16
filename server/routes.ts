@@ -38,21 +38,9 @@ const upload = multer({
   }
 });
 
-// TEMPORARY: Authentication disabled for testing
 function requireAuth(req: any, res: any, next: any) {
-  // TODO: Re-enable authentication later
-  // if (!req.isAuthenticated()) {
-  //   return res.status(401).json({ error: 'Authentication required' });
-  // }
-  
-  // Mock user for testing purposes
-  if (!req.user) {
-    req.user = {
-      id: 'test-user-id',
-      username: 'testuser',
-      password: 'hashed-password',
-      createdAt: new Date()
-    };
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ error: 'Authentication required' });
   }
   next();
 }
