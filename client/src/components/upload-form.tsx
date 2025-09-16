@@ -195,57 +195,84 @@ export default function UploadForm() {
     if (!selectedFile) return;
     
     setIsCropping(true);
-    setCropProgress({ progress: 0, message: 'Starting...' });
+    setCropProgress({ progress: 0, message: 'Initializing...' });
     
     try {
+      console.log(`Starting video crop: ${cropStartTime}s to ${cropStartTime + 5}s`);
+      
       const croppedBlob = await trimVideo(
         selectedFile,
         cropStartTime,
         5,
-        (progress) => setCropProgress(progress)
+        (progress) => {
+          console.log(`Crop progress: ${progress.progress}% - ${progress.message}`);
+          setCropProgress(progress);
+        }
       );
+      
+      // Validate the cropped blob
+      if (!croppedBlob || croppedBlob.size === 0) {
+        throw new Error('Cropped video is empty or invalid');
+      }
+      
+      console.log(`Cropped blob size: ${(croppedBlob.size / 1024 / 1024).toFixed(2)}MB, type: ${croppedBlob.type}`);
       
       // Create new file from cropped blob with correct type and extension
       const originalName = selectedFile.name;
-      const nameWithoutExt = originalName.substring(0, originalName.lastIndexOf('.'));
+      const nameWithoutExt = originalName.substring(0, originalName.lastIndexOf('.')) || 'cropped_video';
       
       let newFileName: string;
       let fileType: string;
       
-      if (croppedBlob.type.startsWith('video/mp4')) {
+      // Determine the best file type based on the blob type
+      if (croppedBlob.type.includes('mp4') || croppedBlob.type.includes('mpeg')) {
         newFileName = `${nameWithoutExt}_cropped.mp4`;
         fileType = 'video/mp4';
-      } else if (croppedBlob.type.startsWith('video/webm')) {
+      } else if (croppedBlob.type.includes('webm')) {
         newFileName = `${nameWithoutExt}_cropped.webm`;
         fileType = 'video/webm';
       } else {
-        // Default to mp4 for unknown types
+        // Default to mp4 for better server compatibility
         newFileName = `${nameWithoutExt}_cropped.mp4`;
         fileType = 'video/mp4';
       }
       
       const croppedFile = new File([croppedBlob], newFileName, {
-        type: fileType
+        type: fileType,
+        lastModified: Date.now()
       });
+      
+      console.log(`Created cropped file: ${croppedFile.name}, size: ${croppedFile.size}, type: ${croppedFile.type}`);
+      
+      // Clean up old preview URL
+      URL.revokeObjectURL(previewUrl);
       
       // Update state with cropped video
       setSelectedFile(croppedFile);
-      URL.revokeObjectURL(previewUrl);
-      const newPreviewUrl = URL.createObjectURL(croppedBlob);
+      const newPreviewUrl = URL.createObjectURL(croppedFile);
       setPreviewUrl(newPreviewUrl);
       setVideoDuration(5000); // 5 seconds
       setShowCropping(false);
       setCropStartTime(0);
+      setIsPreviewPlaying(false);
+      
+      // Reset video element to load the new cropped video
+      if (videoRef.current) {
+        videoRef.current.load();
+      }
       
       toast({
         title: "Video cropped successfully!",
-        description: "Your video has been trimmed to 5 seconds.",
+        description: `Your video has been trimmed to 5 seconds. Ready to upload!`,
       });
       
     } catch (error) {
+      console.error('Video cropping error:', error);
+      const errorMessage = error instanceof Error ? error.message : "Could not crop video";
+      
       toast({
         title: "Cropping failed",
-        description: error instanceof Error ? error.message : "Could not crop video",
+        description: `${errorMessage}. Please try selecting a different segment or use a different video.`,
         variant: "destructive",
       });
     } finally {
